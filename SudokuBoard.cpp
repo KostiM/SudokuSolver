@@ -2,7 +2,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include <map>
+#include <array>
 
 SudokuBoard::SudokuBoard()
 {
@@ -18,23 +18,28 @@ void SudokuBoard::ReadContentFromFile(char* FilePath)
 
     if(!File.is_open())
     {
-        std::cout << "File " << FilePath << "could'n be open.";
+        std::cout << "Error: File " << FilePath << "couldn't be open.";
         return;
     }
     std::string Entry;
-    size_t CellSize = Cells.size();
-    for(int i = 0; !File.eof(); ++i)
-    {
-        if (i > CellSize)
-        {
-            break;
-        }
-        File >> Entry;
+    size_t i = 0;
+    size_t MaxCells = Cells.size();
 
-        if(i < Cells.size() -1)
+    while (i < MaxCells && File >> Entry)
+    {
+        try 
         {
             Cells[i].AssignNumber(std::stoi(Entry));
+            i++;
         }
+        catch (const std::invalid_argument&)
+        {
+            std::cerr << "Warning: Invalid data '" << Entry << "' at index " << i << " skipped." << std::endl;
+        }
+    }
+
+    if (i < MaxCells) {
+        std::cout << "Warning: File ended sooner than expected. Read " << i << " cells." << std::endl;
     }
 }
 
@@ -57,27 +62,20 @@ void SudokuBoard::Solve()
         SolveByCols();
         SolveBySquares();
 
-        if(!bChangedOnPreviousCycle)
-        {
-            FindObviousTuples();
+        if (IsSolved()) {
+            std::cout << "\nIt's done, here's the solution:\n";
+            Print();
+            return;
         }
 
         if (!bChangedOnPreviousCycle)
         {
             std::cout << "\nIt's stuck, can't be solved entirely, that's it for now: \n";
+            std::cout << "Number of unsolved cells left: " << UnsolvedCellsNumber << "\n";
             Print();
+            PrintCoordinatesAndPossibleNumbers();
             break;
         }
-    }
-
-    if(IsSolved())
-    {
-        std::cout << "\nIt's done, here's the solution:\n";
-        Print();
-    }
-    else
-    {
-        PrintCoordinatesAndPossibleNumbers();
     }
 }
 
@@ -122,13 +120,18 @@ void SudokuBoard::PrintCoordinatesAndPossibleNumbers()
     std::cout << std::endl;
     for (auto& Cell : Cells)
     {
-        if (Cell.GetAssignedNumber() == 0 )
+        if (Cell.GetAssignedNumber() == 0)
         {
             auto Coord = Cell.GetCoordinates();
             std::cout << '<' << Coord.X << ',' << Coord.Y << "> : ";
-            for( auto num :Cell.GetPossibleNumbers())
+            
+            const auto& Possible = Cell.GetPossibleNumbers();
+            for (int num = 1; num <= 9; ++num)
             {
-                std::cout << num << ' ';
+                if (Possible.test(num))
+                {
+                    std::cout << num << ' ';
+                }
             }
             std::cout << std::endl;
         }
@@ -186,9 +189,13 @@ void SudokuBoard::AssignIfSinglePossible()
 {
     for(auto& Cell : Cells)
     {
-        if(Cell.GetPossibleNumbers().size() == 1)
+        if(Cell.GetPossibleCount() == 1)
         {
-            AssingNumberAndHandle(&Cell, *Cell.GetPossibleNumbers().begin());
+            for (int n = 1; n <= 9; ++n) {
+                if (Cell.GetPossibleNumbers().test(n)) {
+                    AssingNumberAndHandle(&Cell, n);
+                }
+            }
         }
     }
 }
@@ -314,26 +321,6 @@ void SudokuBoard::GetUnsolvedInSquare(CellCoordinates InCoord, std::vector<Sudok
     }
 }
 
-void SudokuBoard::GetUnsolvedMapFromArray(std::vector<SudokuCell*>& InVector, std::map<num_t, std::vector<SudokuCell*>>& OutMap)
-{
-    OutMap.clear();
-    for (auto Cell : InVector)
-    {
-        for (auto& PossibleNumber : Cell->GetPossibleNumbers())
-        {
-            auto Pair = OutMap.find(PossibleNumber);
-            if (Pair != OutMap.end())
-            {
-                Pair->second.push_back(Cell);
-            }
-            else
-            {
-                OutMap.insert({ PossibleNumber , {Cell} });
-            }
-        }
-    }
-}
-
 bool SudokuBoard::IsSolved()
 {
     return !(UnsolvedCellsNumber > 0);
@@ -341,7 +328,7 @@ bool SudokuBoard::IsSolved()
 
 void SudokuBoard::SolveByRows()
 {
-    for(int i = 0; i < 8; ++i)
+    for(int i = 0; i < 9; ++i)
     {
         std::vector<SudokuCell*> Row;
         GetUnsolvedInRow(i,Row);
@@ -351,7 +338,7 @@ void SudokuBoard::SolveByRows()
 
 void SudokuBoard::SolveByCols()
 {
-    for (int i = 0; i < 8; ++i)
+    for (int i = 0; i < 9; ++i)
     {
         std::vector<SudokuCell*> Col;
         GetUnsolvedInColumn(i, Col);
@@ -361,47 +348,195 @@ void SudokuBoard::SolveByCols()
 
 void SudokuBoard::SolveBySquares()
 {
-    for (coord_t i = 0; i < 8; i+=3)
+    for (coord_t i = 0; i < 9; i+=3)
     {
-        for(coord_t j = 0; j < 8; j+=3)
+        for(coord_t j = 0; j < 9; j+=3)
         {
             std::vector<SudokuCell*> Square;
             GetUnsolvedInSquare({i,j}, Square);
-            SolveArray(Square);
+            SolveArray(Square, true);
         }
     }
 }
 
-void SudokuBoard::SolveArray(std::vector<SudokuCell*>& InVector)
+void SudokuBoard::SolveArray(std::vector<SudokuCell*>& InVector, bool IsSquare)
 {
-    std::map<num_t, std::vector<SudokuCell*>> map;
-    GetUnsolvedMapFromArray(InVector, map);
+    std::array<std::vector<SudokuCell*>, 10> DigitCandidates;
 
-    for (auto& Pair : map)
+    for (auto* Cell : InVector)
     {
-        if (Pair.second.size() == 1)
+        const auto& Possible = Cell->GetPossibleNumbers();
+        for (int num = 1; num <= 9; ++num)
         {
-            AssingNumberAndHandle(Pair.second[0],Pair.first);
+            if (Possible.test(num))
+            {
+                DigitCandidates[num].push_back(Cell);
+            }
         }
+    }
+
+    bool PreviouseSucceeded = false;
+    for (int i = 1; i <=9; ++i)
+    {
+        if (DigitCandidates[i].size() == 1)
+        {
+            AssingNumberAndHandle(DigitCandidates[i][0], i);
+            PreviouseSucceeded = true;
+        }
+    }
+
+    if(!PreviouseSucceeded)
+    {
+        PreviouseSucceeded = SolveForNakedPairs(InVector);
+    }
+
+    if(!PreviouseSucceeded)
+    {
+        PreviouseSucceeded = SolveArrayForHiddenPairs(InVector, DigitCandidates);
+    }
+
+    if(!PreviouseSucceeded and IsSquare)
+    {
+       SolveForPointingPairs(InVector, DigitCandidates);
     }
 }
 
-void SudokuBoard::FindObviousTuples()
+bool SudokuBoard::SolveForNakedPairs(std::vector<SudokuCell*>& InVector)
 {
-}
-
-void SudokuBoard::FindObviousTuplesInArray(std::vector<SudokuCell*>& InVector)
-{
-    if(InVector.size() < 4)
-        return;
-
-}
-
-void DeletePossibleNumberForEntry(num_t Number, std::vector<SudokuCell*>& const Entry)
-{
-    for(auto Cell: Entry)
+    bool LocallyChanged = false;
+    for (int i = 0; i < InVector.size(); ++i)
     {
-        Cell->RemovePossibleNumber(Number);
+        if (InVector[i]->GetPossibleNumbers().count() != 2)
+        {
+            continue;
+        }
+        for (int j = i + 1; j < InVector.size(); ++j)
+        {
+            if (InVector[i]->GetPossibleNumbers() != InVector[j]->GetPossibleNumbers())
+            {
+                continue;
+            }
+            NumSet PairMask = InVector[i]->GetPossibleNumbers();
+
+            bool bLocalChange = false;
+            for (auto* OtherCell : InVector)
+            {
+                if (OtherCell != InVector[i] && OtherCell != InVector[j])
+                {
+                    if (OtherCell->RemovePossibleNumbers(PairMask))
+                    {
+                        bChangedOnPreviousCycle = true;
+                        LocallyChanged = true;
+                        //std::cout << "--- NAKED PAIR FOUND! ---" << std::endl;
+                    }
+                }
+            }
+        }
+    }
+    return LocallyChanged;
+}
+
+bool SudokuBoard::SolveArrayForHiddenPairs(std::vector<SudokuCell*>& InVector, std::array<std::vector<SudokuCell*>, 10>& DigitCandidates)
+{
+    bool LocallyChanged = false;
+    for (int i = 1; i <= 9; ++i)
+    {
+        if (DigitCandidates[i].size() == 2)
+        {
+            for (int j = i + 1; j <= 9; ++j)
+            {
+                if (DigitCandidates[j].size() == 2)
+                {
+                    if (DigitCandidates[i][0] == DigitCandidates[j][0] && DigitCandidates[i][1] == DigitCandidates[j][1])
+                    {
+                        bool bLocalChange = false;
+
+                        NumSet PairMask;
+                        PairMask.set(i);
+                        PairMask.set(j);
+
+                        for (int k = 0; k < 2; ++k)
+                        {
+                            SudokuCell* CellPtr = DigitCandidates[i][k];
+                            if (CellPtr->KeepPossibleNumbers(PairMask))
+                            {
+                                bChangedOnPreviousCycle = true;
+                                LocallyChanged = true;
+                                //std::cout << "--- HIDDEN PAIR FOUND! ---" << std::endl;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return LocallyChanged;
+}
+
+void SudokuBoard::SolveForPointingPairs(std::vector<SudokuCell*>& InVector, std::array<std::vector<SudokuCell*>, 10>& DigitCandidates)
+{
+    for (int NumIndex = 1; NumIndex < 10; ++NumIndex)
+    {
+        if (DigitCandidates[NumIndex].size() > 3)
+        {
+            continue; 
+        }
+
+        coord_t CommonRow = INVALID_COORD;
+        coord_t CommonCol = INVALID_COORD;
+        NumSet Xs2Exlude;
+        NumSet Ys2Exlude;
+        for(int i = 0; i < DigitCandidates[NumIndex].size(); ++i)
+        {
+            CellCoordinates coord = DigitCandidates[NumIndex][i]->GetCoordinates();
+            if( i == 0)
+            {
+                CommonRow = coord.Y;
+                Ys2Exlude.set(coord.Y);
+                CommonCol = coord.X;
+                Xs2Exlude.set(coord.X);
+            }
+            else
+            {
+                if (CommonRow != coord.Y)
+                {
+                    CommonRow = INVALID_COORD;
+                }
+
+                if(CommonCol != coord.X)
+                {
+                    CommonCol = INVALID_COORD;
+                }
+            }
+        }
+
+        if(CommonRow != INVALID_COORD)
+        {
+            //std::cout << "--- POINTING PAIR FOUND! ---" << std::endl;
+            for(coord_t i = 0; i < 9; ++i)
+            {
+                if ( Xs2Exlude.test(i) )
+                {
+                    continue;
+                }
+                SudokuCell* Cell = GetCell({i,CommonRow});
+                bChangedOnPreviousCycle = bChangedOnPreviousCycle ||  Cell->RemovePossibleNumber(NumIndex);
+            }
+        }
+        else if (CommonCol != INVALID_COORD)
+        {
+            //std::cout << "--- POINTING PAIR FOUND! ---" << std::endl;
+            for (coord_t i = 0; i < 9; ++i)
+            {
+                if (Ys2Exlude.test(i))
+                {
+                    continue;
+                }
+
+                SudokuCell* Cell = GetCell({ CommonCol, i });
+                bChangedOnPreviousCycle = bChangedOnPreviousCycle || Cell->RemovePossibleNumber(NumIndex);
+            }
+        }
     }
 }
 
@@ -411,6 +546,7 @@ void SudokuBoard::AssingNumberAndHandle(SudokuCell* const Cell, const num_t Numb
     HandleCellAssigning(Cell);
     Cell->bAssigningHandled = true;
     bChangedOnPreviousCycle = true;
+    UnsolvedCellsNumber--;
 }
 
 void SudokuBoard::HandleCellAssigning(SudokuCell* Cell)
@@ -424,4 +560,15 @@ void SudokuBoard::HandleCellAssigning(SudokuCell* Cell)
     DeletePossibleNumberForEntry(AssignedNumber, Entry);
     GetSquare(Coords, Entry);
     DeletePossibleNumberForEntry(AssignedNumber,Entry);
+}
+
+void SudokuBoard::DeletePossibleNumberForEntry(num_t Number, std::vector<SudokuCell*>& Entry)
+{
+    for (auto Cell : Entry)
+    {
+        if (Cell->RemovePossibleNumber(Number))
+        {
+            bChangedOnPreviousCycle = true;
+        }
+    }
 }

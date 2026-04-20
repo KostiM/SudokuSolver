@@ -1,5 +1,5 @@
 #pragma once
-#include <set>
+
 #include "Miscellaneous.h"
 
 class SudokuCell
@@ -11,16 +11,18 @@ public:
 
 private:
     unsigned char AssignedNumber = 0;
-    std::set<num_t> PossibleNumbers;
+    NumSet PossibleNumbers;
     CellCoordinates Coordinates;
 
 public:
     void AssignNumber(num_t Value);
-    void InitNumber(num_t Value);
     num_t GetAssignedNumber() const { return AssignedNumber; }
-    std::set<num_t>& GetPossibleNumbers() { return PossibleNumbers; }
+    NumSet& GetPossibleNumbers() { return PossibleNumbers; }
+    size_t GetPossibleCount();
     void AddPossibleNumber(num_t Value);
-    void RemovePossibleNumber(num_t Value);
+    bool KeepPossibleNumbers(NumSet BitMask);
+    bool RemovePossibleNumber(num_t Value);
+    bool RemovePossibleNumbers(NumSet BitMask);
     void SetCoordinates(CellCoordinates InCoordinates) { Coordinates = InCoordinates; }
     CellCoordinates GetCoordinates() const { return Coordinates; }
     bool bAssigningHandled = false;

@@ -1,8 +1,11 @@
 #pragma once
 #include <iostream>
+#include <bitset>
 
 typedef unsigned int num_t;
 typedef unsigned int coord_t;
+using NumSet = std::bitset<10>;
+constexpr coord_t INVALID_COORD = -1;
 
 struct CellCoordinates
 {

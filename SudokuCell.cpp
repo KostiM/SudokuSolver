@@ -14,37 +14,52 @@ SudokuCell::SudokuCell(CellCoordinates InCoordinates, num_t InNumber)
 
 void SudokuCell::AssignNumber(num_t Value)
 {
-    if(Value != 0 && Value <= 9)
+    if(Value>=0 && Value <= 9)
     {
         AssignedNumber = Value;
-        PossibleNumbers.clear();
-    }
-    else
-    {
-        AssignedNumber = 0;
+        if(Value != 0)
+        {
+            PossibleNumbers.reset();
+        }
     }
 }
 
-void SudokuCell::InitNumber(num_t Value)
+size_t SudokuCell::GetPossibleCount()
 {
-    if (Value != 0 && Value <= 9)
-    {
-        AssignedNumber = Value;
-        PossibleNumbers.clear();
-    }
-    else
-    {
-        AssignedNumber = 0;
-    }
-    bAssigningHandled = true;
+    return PossibleNumbers.count();
 }
 
 void SudokuCell::AddPossibleNumber(num_t Value)
 {
-    PossibleNumbers.insert(Value);
+    PossibleNumbers.set(Value);
 }
 
-void SudokuCell::RemovePossibleNumber(num_t Value)
+bool SudokuCell::KeepPossibleNumbers(NumSet BitMask)
 {
-    PossibleNumbers.erase(Value);
+    bool HasChanged = (PossibleNumbers & ~BitMask).any();
+    if(HasChanged)
+    {
+        PossibleNumbers &= BitMask;
+    }
+    return HasChanged;
+}
+
+bool SudokuCell::RemovePossibleNumber(num_t Value)
+{
+    if (PossibleNumbers.test(Value))
+    {
+        PossibleNumbers.reset(Value);
+        return true;
+    }
+    return false;
+}
+
+bool SudokuCell::RemovePossibleNumbers(NumSet BitMask)
+{
+    bool HasChanged = (PossibleNumbers & BitMask).any();
+    if (HasChanged)
+    {
+        PossibleNumbers &= ~BitMask;
+    }
+    return HasChanged;
 }
